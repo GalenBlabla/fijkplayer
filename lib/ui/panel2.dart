@@ -1,25 +1,3 @@
-//MIT License
-//
-//Copyright (c) [2020] [Befovy]
-//
-//Permission is hereby granted, free of charge, to any person obtaining a copy
-//of this software and associated documentation files (the "Software"), to deal
-//in the Software without restriction, including without limitation the rights
-//to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-//copies of the Software, and to permit persons to whom the Software is
-//furnished to do so, subject to the following conditions:
-//
-//The above copyright notice and this permission notice shall be included in all
-//copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-//IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-//AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-//LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-//OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-//SOFTWARE.
-
 part of fijkplayer;
 
 FijkPanelWidgetBuilder fijkPanel2Builder(
@@ -87,7 +65,7 @@ class __FijkPanel2State extends State<_FijkPanel2> {
   bool _dragLeft = false;
   double? _volume;
   double? _brightness;
-
+  OverlayEntry? _overlayEntry;
   double _seekPos = -1.0;
   Duration _duration = Duration();
   Duration _currentPos = Duration();
@@ -216,11 +194,14 @@ class __FijkPanel2State extends State<_FijkPanel2> {
     if (player.isPlayable() || player.state == FijkState.asyncPreparing) {
       if (player.state == FijkState.started) {
         player.pause();
+        _showOverlayMessage("Paused"); // 显示暂停提示
       } else {
         player.start();
+        _showOverlayMessage("Playing"); // 显示播放提示
       }
     } else if (player.state == FijkState.initialized) {
       player.start();
+      _showOverlayMessage("Playing"); // 显示播放提示
     } else {
       FijkLog.w("Invalid state ${player.state} ,can't perform play or pause");
     }
@@ -294,7 +275,67 @@ class __FijkPanel2State extends State<_FijkPanel2> {
     _volume = null;
     _brightness = null;
   }
+  void _seekForward() {
+    final currentPosition = player.currentPos;
+    final newPosition = currentPosition + Duration(seconds: 10);
+    if (newPosition <= _duration) {
+      player.seekTo(newPosition.inMilliseconds);
+      setState(() {
+        _currentPos = newPosition;
+      });
+      _showOverlayMessage("+10s"); // 显示快进提示
+    }
+  }
 
+  void _seekBackward() {
+    final currentPosition = player.currentPos;
+    final newPosition = currentPosition - Duration(seconds: 10);
+    if (newPosition >= Duration.zero) {
+      player.seekTo(newPosition.inMilliseconds);
+      setState(() {
+        _currentPos = newPosition;
+      });
+      _showOverlayMessage("-10s"); // 显示快退提示
+    }
+  }
+
+  void _showOverlayMessage(String message) {
+    _overlayEntry?.remove();
+    _overlayEntry = OverlayEntry(
+      builder: (context) => Positioned(
+        top: widget.viewSize.height / 2 - 50,
+        left: widget.viewSize.width / 2 - 50,
+        child: Container(
+          padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.black54,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            message,
+            style: TextStyle(color: Colors.white, fontSize: 20),
+          ),
+        ),
+      ),
+    );
+
+    Overlay.of(context)?.insert(_overlayEntry!);
+
+    // 在1秒后移除提示信息
+    Future.delayed(Duration(seconds: 1), () {
+      _overlayEntry?.remove();
+      _overlayEntry = null;
+    });
+  }
+  void _startSpeedUp() {
+    player.setSpeed(2.0); // 设置倍速播放速度为2倍
+    _showOverlayMessage("2x Speed"); // 显示倍速播放提示
+  }
+
+  void _resetSpeed() {
+    player.setSpeed(1.0); // 恢复正常速度
+    _showOverlayMessage("Normal Speed"); // 显示恢复正常速度提示
+  }
   Widget buildPlayButton(BuildContext context, double height) {
     Icon icon = (player.state == FijkState.started)
         ? Icon(Icons.pause)
@@ -474,22 +515,92 @@ class __FijkPanel2State extends State<_FijkPanel2> {
       ],
     );
   }
+  String _formatDuration(Duration position) {
+    int minutes = position.inMinutes;
+    int seconds = position.inSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
 
+  Widget _buildCurrentTimeLabel() {
+    if (_seekPos > 0) {
+      Duration position = Duration(milliseconds: _seekPos.toInt());
+      return Positioned(
+        top: 10,
+        left: MediaQuery.of(context).size.width / 2 - 50,
+        child: Container(
+          padding: EdgeInsets.all(5),
+          decoration: BoxDecoration(
+            color: Colors.black54,
+            borderRadius: BorderRadius.circular(5),
+          ),
+          child: Text(
+            '${_formatDuration(position)} / ${_formatDuration(_duration)}',
+            style: TextStyle(color: Colors.white),
+          ),
+        ),
+      );
+    } else {
+      return Container();
+    }
+  }
   GestureDetector buildGestureDetector(BuildContext context) {
     return GestureDetector(
       onTap: onTapFun,
-      onDoubleTap: widget.doubleTap ? onDoubleTapFun : null,
+      onDoubleTapDown: (details) {
+        // 获取点击的位置
+        final double screenWidth = MediaQuery.of(context).size.width;
+        final double dx = details.globalPosition.dx;
+
+        if (dx < screenWidth / 3) {
+          // 左边三分之一屏幕，快退10秒
+          _seekBackward();
+        } else if (dx > 2 * screenWidth / 3) {
+          // 右边三分之一屏幕，快进10秒
+          _seekForward();
+        } else {
+          // 中间三分之一屏幕，暂停/播放
+          playOrPause();
+        }
+      },
       onVerticalDragUpdate: onVerticalDragUpdateFun,
       onVerticalDragStart: onVerticalDragStartFun,
       onVerticalDragEnd: onVerticalDragEndFun,
-      onHorizontalDragUpdate: (d) {},
-      child: AbsorbPointer(
-        absorbing: _hideStuff,
-        child: AnimatedOpacity(
-          opacity: _hideStuff ? 0 : 1,
-          duration: Duration(milliseconds: 300),
-          child: buildPanel(context),
-        ),
+      onHorizontalDragStart: (d) {
+        // 保存当前播放位置，用于计算拖动后的播放位置
+        _seekPos = _currentPos.inMilliseconds.toDouble();
+      },
+      onHorizontalDragUpdate: (d) {
+        double delta = d.primaryDelta! / panelWidth() * dura2double(_duration);
+        setState(() {
+          _seekPos = (_seekPos + delta).clamp(0.0, dura2double(_duration));
+          player.seekTo(_seekPos.toInt());
+        });
+      },
+      onHorizontalDragEnd: (d) {
+        // 拖动结束后更新当前播放位置并清除 _seekPos
+        setState(() {
+          _currentPos = Duration(milliseconds: _seekPos.toInt());
+          _seekPos = -1.0;
+        });
+      },
+      onLongPressStart: (details) {
+        _startSpeedUp();
+      },
+      onLongPressEnd: (details) {
+        _resetSpeed();
+      },
+      child: Stack(
+        children: [
+          AbsorbPointer(
+            absorbing: _hideStuff,
+            child: AnimatedOpacity(
+              opacity: _hideStuff ? 0 : 1,
+              duration: Duration(milliseconds: 300),
+              child: buildPanel(context),
+            ),
+          ),
+          _buildCurrentTimeLabel(), // 在屏幕上显示当前时间
+        ],
       ),
     );
   }
